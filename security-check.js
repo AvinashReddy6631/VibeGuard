@@ -27,7 +27,8 @@ const DEFAULT_CONFIG = {
         supplyChain: true,
         openRedirect: true,
         insecureTransport: true,
-        cookieSecurity: true
+        cookieSecurity: true,
+        jwtSecurity: true
     },
 
     ignore: {
@@ -1404,6 +1405,70 @@ function checkCookieSecurity(files) {
 }
 /*
 ==================================================
+19. JWT SECURITY CHECK
+==================================================
+*/
+
+function checkJWTSecurity(files) {
+    if (!config.checks?.jwtSecurity) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs"
+    ]);
+
+    const dangerousPatterns = [
+        {
+            name: "JWT algorithm set to none",
+            regex: /\balgorithm\s*:\s*["']none["']/i
+        },
+        {
+            name: "JWT verification with disabled signature validation",
+            regex: /\b(?:ignoreExpiration|ignoreNotBefore)\s*:\s*true\b/i
+        },
+        {
+            name: "JWT signed with hardcoded secret",
+            regex: /\b(?:jwt|jsonwebtoken)\.(?:sign|verify)\s*\([^)]*["'][^"']{8,}["']/i
+        }
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sourceExtensions.has(extension)) continue;
+
+        const content = readFileSafe(file);
+        if (!content) continue;
+
+        for (const pattern of dangerousPatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) continue;
+
+            addFinding({
+                id: "VG-JWT-001",
+                severity: "HIGH",
+                title: `Potential JWT security issue: ${pattern.name}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The project appears to use a potentially unsafe JWT configuration.",
+                recommendation:
+                    "Use strong secrets stored outside source code, explicitly allow secure algorithms, and validate JWT claims and signatures."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -1774,6 +1839,7 @@ checkSupplyChain(files);
 checkOpenRedirect(files);
 checkInsecureTransport(files);
 checkCookieSecurity(files);
+checkJWTSecurity(files);
 checkAuthorization(files);
 checkDependencies();
 writeJsonReport(files);
