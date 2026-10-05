@@ -1,0 +1,821 @@
+const fs = require("fs");
+const path = require("path");
+const { execSync } = require("child_process");
+
+const ROOT = path.resolve(process.argv[2] || ".");
+
+const CONFIG_PATH = path.join(__dirname, "security.config.json");
+
+let config = {};
+
+try {
+    config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+} catch (error) {
+    console.error("❌ Could not read security.config.json");
+    process.exit(1);
+}
+
+const findings = [];
+
+const ignoredDirectories = new Set(
+    config.ignore?.directories || []
+);
+
+const ignoredFiles = new Set([
+    ...(config.ignore?.files || []),
+    "security-check.js",
+    "security.config.json"
+]);
+
+const allowedExtensions = new Set([
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".json",
+    ".env",
+    ".yml",
+    ".yaml",
+    ".config",
+    ".mjs",
+    ".cjs",
+    ".py",
+    ".java",
+    ".php",
+    ".rb",
+    ".go",
+    ".cs",
+    ".html",
+    ".htm"
+]);
+
+function addFinding({
+    id,
+    severity,
+    title,
+    file,
+    line,
+    description,
+    recommendation
+}) {
+    const findingKey = [
+        id,
+        file,
+        line
+    ].join("|");
+
+    const alreadyExists = findings.some(finding => {
+        const existingKey = [
+            finding.id,
+            finding.file,
+            finding.line
+        ].join("|");
+
+        return existingKey === findingKey;
+    });
+
+    if (alreadyExists) {
+        return;
+    }
+
+    findings.push({
+        id,
+        severity,
+        title,
+        file,
+        line,
+        description,
+        recommendation
+    });
+}
+function shouldIgnore(filePath) {
+    const relative = path.relative(ROOT, filePath);
+    const parts = relative.split(path.sep);
+
+    for (const part of parts) {
+        if (ignoredDirectories.has(part)) {
+            return true;
+        }
+    }
+
+    if (ignoredFiles.has(path.basename(filePath))) {
+        return true;
+    }
+
+    return false;
+}
+
+function getFiles(directory) {
+    let results = [];
+
+    let entries;
+
+    try {
+        entries = fs.readdirSync(directory, {
+            withFileTypes: true
+        });
+    } catch {
+        return results;
+    }
+
+    for (const entry of entries) {
+        const fullPath = path.join(directory, entry.name);
+
+        if (shouldIgnore(fullPath)) {
+            continue;
+        }
+
+        if (entry.isDirectory()) {
+            results = results.concat(getFiles(fullPath));
+        } else {
+            results.push(fullPath);
+        }
+    }
+
+    return results;
+}
+
+function getLineNumber(content, index) {
+    return content.substring(0, index).split("\n").length;
+}
+
+function isTextFile(file) {
+    const extension = path.extname(file).toLowerCase();
+
+    return allowedExtensions.has(extension) ||
+        path.basename(file).startsWith(".env");
+}
+
+function readFileSafe(file) {
+    try {
+        const stats = fs.statSync(file);
+
+        // Skip files larger than 2 MB
+        if (stats.size > 2 * 1024 * 1024) {
+            return null;
+        }
+
+        return fs.readFileSync(file, "utf8");
+    } catch {
+        return null;
+    }
+}
+
+/*
+==================================================
+1. ENVIRONMENT FILE CHECK
+==================================================
+*/
+
+function checkEnvironmentFiles(files) {
+    if (!config.checks?.environmentFiles) {
+        return;
+    }
+
+    for (const file of files) {
+        const name = path.basename(file);
+
+        if (
+            name === ".env" ||
+            name === ".env.local" ||
+            name === ".env.production" ||
+            name === ".env.development"
+        ) {
+            addFinding({
+                id: "VG-ENV-001",
+                severity: "HIGH",
+                title: "Environment file detected",
+                file: path.relative(ROOT, file),
+                line: 1,
+                description:
+                    "A potentially sensitive environment file exists inside the project.",
+                recommendation:
+                    "Keep secrets outside source control and ensure sensitive .env files are ignored by Git."
+            });
+        }
+    }
+}
+
+/*
+==================================================
+2. SECRET DETECTION
+==================================================
+*/
+
+function checkSecrets(files) {
+    if (!config.checks?.secrets) {
+        return;
+    }
+
+    const patterns = [
+        {
+            name: "API key",
+            regex: /\b(?:API_KEY|SECRET_KEY|ACCESS_TOKEN|AUTH_TOKEN)\s*[:=]\s*["']?[^"'\s]{8,}["']?/i
+        },
+        {
+            name: "JWT secret",
+            regex: /\bJWT_SECRET\s*[:=]\s*["']?[^"'\s]{8,}["']?/i
+        },
+        {
+            name: "Database credential",
+            regex: /\b(?:DATABASE_URL|MONGODB_URI|DB_PASSWORD)\s*[:=]\s*["']?[^"'\s]{8,}["']?/i
+        },
+        {
+            name: "AWS access key",
+            regex: /\bAKIA[0-9A-Z]{16}\b/
+        },
+        {
+            name: "OpenAI-style key",
+            regex: /\bsk-[A-Za-z0-9_-]{20,}\b/
+        },
+        {
+            name: "Private key",
+            regex: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/
+        }
+    ];
+
+    for (const file of files) {
+        if (!isTextFile(file)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        for (const pattern of patterns) {
+            const match = content.match(pattern.regex);
+
+            if (match) {
+                const line = getLineNumber(
+                    content,
+                    match.index
+                );
+
+                addFinding({
+                    id: "VG-SECRET-001",
+                    severity: "CRITICAL",
+                    title: `Potential ${pattern.name} detected`,
+                    file: path.relative(ROOT, file),
+                    line,
+                    description:
+                        "A value matching a sensitive credential pattern was detected.",
+                    recommendation:
+                        "Remove the secret from source code, rotate it if real, and use environment variables or a dedicated secret manager."
+                });
+
+                break;
+            }
+        }
+    }
+}
+
+/*
+==================================================
+3. CORS CHECK
+==================================================
+*/
+
+function checkCors(files) {
+    if (!config.checks?.cors) {
+        return;
+    }
+
+    const patterns = [
+        /origin\s*:\s*["']\*["']/i,
+        /Access-Control-Allow-Origin["']?\s*[:=]\s*["']\*["']/i,
+        /cors\s*\(\s*\{\s*origin\s*:\s*["']\*["']/i
+    ];
+
+    for (const file of files) {
+        if (!isTextFile(file)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        for (const pattern of patterns) {
+            const match = content.match(pattern);
+
+            if (match) {
+                addFinding({
+                    id: "VG-CORS-001",
+                    severity: "MEDIUM",
+                    title: "Permissive CORS configuration detected",
+                    file: path.relative(ROOT, file),
+                    line: getLineNumber(content, match.index),
+                    description:
+                        "The application appears to allow requests from any origin.",
+                    recommendation:
+                        "Restrict CORS to trusted application origins."
+                });
+
+                break;
+            }
+        }
+    }
+}
+
+/*
+==================================================
+4. SECURITY HEADER CHECK
+==================================================
+*/
+
+function checkSecurityHeaders(files) {
+    if (!config.checks?.securityHeaders) {
+        return;
+    }
+
+    let headerFound = false;
+
+    const headerPatterns = [
+        /Content-Security-Policy/i,
+        /Strict-Transport-Security/i,
+        /X-Content-Type-Options/i,
+        /X-Frame-Options/i,
+        /Referrer-Policy/i
+    ];
+
+    for (const file of files) {
+        if (!isTextFile(file)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        for (const pattern of headerPatterns) {
+            if (pattern.test(content)) {
+                headerFound = true;
+                break;
+            }
+        }
+
+        if (headerFound) {
+            break;
+        }
+    }
+
+    if (!headerFound) {
+        addFinding({
+            id: "VG-HEADER-001",
+            severity: "LOW",
+            title: "Security headers were not detected",
+            file: "Project-wide",
+            line: "-",
+            description:
+                "No common HTTP security header configuration was detected.",
+            recommendation:
+                "Review and configure appropriate security headers for your application."
+        });
+    }
+}
+
+/*
+==================================================
+5. AUTHENTICATION CHECK
+==================================================
+*/
+/*
+==================================================
+5. AUTHENTICATION CHECK
+==================================================
+*/
+
+function checkAuthentication(files) {
+    if (!config.checks?.authentication) {
+        return;
+    }
+
+    const authKeywords = [
+        "jsonwebtoken",
+        "bcrypt",
+        "bcryptjs",
+        "passport",
+        "session",
+        "authenticate",
+        "login",
+        "signin"
+    ];
+
+    let found = false;
+
+    for (const file of files) {
+        if (!isTextFile(file)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        const lowerContent = content.toLowerCase();
+
+        if (
+            authKeywords.some(keyword =>
+                lowerContent.includes(keyword.toLowerCase())
+            )
+        ) {
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        addFinding({
+            id: "VG-AUTH-001",
+            severity: "INFO",
+            title: "Authentication implementation not detected",
+            file: "Project-wide",
+            line: "-",
+            description:
+                "No obvious authentication implementation was detected.",
+            recommendation:
+                "Review whether protected resources require authentication."
+        });
+    }
+}
+/*
+==================================================
+6. AUTHORIZATION CHECK
+==================================================
+*/
+function checkAuthorization(files) {
+    if (!config.checks?.authorization) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs",
+        ".py",
+        ".java",
+        ".php",
+        ".rb",
+        ".go",
+        ".cs"
+    ]);
+
+    const dangerousPatterns = [
+        /\/admin\b/i,
+        /\/users\/:id/i,
+        /req\.params\.id/i,
+        /deleteUser\s*\(/i,
+        /isAdmin\s*=/i
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        // Only analyze source-code files.
+        // Do not analyze .env, JSON, YAML, etc.
+        if (!sourceExtensions.has(extension)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        for (const pattern of dangerousPatterns) {
+            const match = content.match(pattern);
+
+            if (!match) {
+                continue;
+            }
+
+            addFinding({
+                id: "VG-AUTHZ-001",
+                severity: "MEDIUM",
+                title: "Potential authorization-sensitive code detected",
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The project contains code that may require resource-level authorization.",
+                recommendation:
+                    "Verify that users can access or modify only resources they are authorized to access."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
+7. DEPENDENCY CHECK
+==================================================
+*/
+
+function checkDependencies() {
+    if (!config.checks?.dependencies) {
+        return;
+    }
+
+    const packageJson = path.join(ROOT, "package.json");
+
+    if (!fs.existsSync(packageJson)) {
+        return;
+    }
+
+    console.log("\n🔍 Running npm audit...\n");
+
+    try {
+        const result = execSync("npm audit --json", {
+            cwd: ROOT,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"]
+        });
+
+        const data = JSON.parse(result);
+
+        const vulnerabilities =
+            data.metadata?.vulnerabilities;
+
+        if (vulnerabilities) {
+            const total =
+                (vulnerabilities.critical || 0) +
+                (vulnerabilities.high || 0) +
+                (vulnerabilities.moderate || 0) +
+                (vulnerabilities.low || 0);
+
+            if (total > 0) {
+                addFinding({
+                    id: "VG-DEP-001",
+                    severity:
+                        vulnerabilities.critical > 0
+                            ? "CRITICAL"
+                            : vulnerabilities.high > 0
+                                ? "HIGH"
+                                : "MEDIUM",
+                    title: "Dependency vulnerabilities detected",
+                    file: "package.json",
+                    line: "-",
+                    description:
+                        `${total} dependency vulnerability/vulnerabilities reported by npm audit.`,
+                    recommendation:
+                        "Review npm audit results and update or replace vulnerable dependencies."
+                });
+            }
+        }
+    } catch (error) {
+        try {
+            const output = error.stdout?.toString();
+
+            if (output) {
+                const data = JSON.parse(output);
+                const vulnerabilities =
+                    data.metadata?.vulnerabilities;
+
+                if (vulnerabilities) {
+                    const total =
+                        (vulnerabilities.critical || 0) +
+                        (vulnerabilities.high || 0) +
+                        (vulnerabilities.moderate || 0) +
+                        (vulnerabilities.low || 0);
+
+                    if (total > 0) {
+                        addFinding({
+                            id: "VG-DEP-001",
+                            severity:
+                                vulnerabilities.critical > 0
+                                    ? "CRITICAL"
+                                    : vulnerabilities.high > 0
+                                        ? "HIGH"
+                                        : "MEDIUM",
+                            title: "Dependency vulnerabilities detected",
+                            file: "package.json",
+                            line: "-",
+                            description:
+                                `${total} dependency vulnerability/vulnerabilities reported by npm audit.`,
+                            recommendation:
+                                "Run npm audit and review the vulnerable packages."
+                        });
+                    }
+                }
+            }
+        } catch {
+            console.log("⚠️ npm audit could not be completed.");
+        }
+    }
+}
+
+/*
+==================================================
+SCORING
+==================================================
+*/
+function calculateScore() {
+    const counts = {
+        CRITICAL: 0,
+        HIGH: 0,
+        MEDIUM: 0,
+        LOW: 0,
+        INFO: 0
+    };
+
+    for (const finding of findings) {
+        counts[finding.severity]++;
+    }
+
+    let score = 100;
+
+    score -= counts.CRITICAL * 20;
+    score -= counts.HIGH * 12;
+    score -= counts.MEDIUM * 6;
+    score -= counts.LOW * 2;
+
+    return Math.max(0, Math.min(100, score));
+}
+/*
+==================================================
+REPORT
+==================================================
+*/
+function writeJsonReport(files) {
+    const counts = {
+        CRITICAL: 0,
+        HIGH: 0,
+        MEDIUM: 0,
+        LOW: 0,
+        INFO: 0
+    };
+
+    for (const finding of findings) {
+        counts[finding.severity]++;
+    }
+
+    const report = {
+        tool: "VibeGuard",
+        version: "0.1.0",
+        timestamp: new Date().toISOString(),
+
+        project: {
+            name: config.projectName || path.basename(ROOT),
+            target: ROOT,
+            filesScanned: files.length
+        },
+
+        summary: counts,
+
+        score: calculateScore(),
+
+        findings: findings
+    };
+
+    const outputPath = path.join(
+        process.cwd(),
+        "vibeguard-report.json"
+    );
+
+    fs.writeFileSync(
+        outputPath,
+        JSON.stringify(report, null, 2),
+        "utf8"
+    );
+
+    console.log(`\n📄 JSON report: ${outputPath}`);
+}
+
+function printReport(files) {
+    const counts = {
+        CRITICAL: 0,
+        HIGH: 0,
+        MEDIUM: 0,
+        LOW: 0,
+        INFO: 0
+    };
+
+    for (const finding of findings) {
+        counts[finding.severity]++;
+    }
+
+    const score = calculateScore();
+
+    console.log("\n");
+    console.log("==================================================");
+    console.log("                 VIBEGUARD");
+    console.log("           SECURITY AUDIT REPORT");
+    console.log("==================================================");
+
+    console.log(`\nProject: ${config.projectName || path.basename(ROOT)}`);
+    console.log(`Target: ${ROOT}`);
+    console.log(`Files scanned: ${files.length}`);
+
+    console.log("\n--------------------------------------------------");
+    console.log("SUMMARY");
+    console.log("--------------------------------------------------");
+
+    console.log(`Critical : ${counts.CRITICAL}`);
+    console.log(`High     : ${counts.HIGH}`);
+    console.log(`Medium   : ${counts.MEDIUM}`);
+    console.log(`Low      : ${counts.LOW}`);
+    console.log(`Info     : ${counts.INFO}`);
+
+    console.log("\n--------------------------------------------------");
+    console.log("SECURITY SCORE");
+    console.log("--------------------------------------------------");
+
+    console.log(`${score} / 100`);
+
+    if (findings.length === 0) {
+        console.log("\n✅ No findings detected by the current rules.");
+    }
+
+    for (const severity of [
+        "CRITICAL",
+        "HIGH",
+        "MEDIUM",
+        "LOW",
+        "INFO"
+    ]) {
+        const matching = findings.filter(
+            finding => finding.severity === severity
+        );
+
+        if (matching.length === 0) {
+            continue;
+        }
+
+        console.log("\n--------------------------------------------------");
+        console.log(`${severity} FINDINGS`);
+        console.log("--------------------------------------------------");
+
+        for (const finding of matching) {
+            console.log(`\n[${finding.id}]`);
+            console.log(finding.title);
+            console.log(`File: ${finding.file}`);
+            console.log(`Line: ${finding.line}`);
+            console.log(`Description: ${finding.description}`);
+            console.log(`Recommendation: ${finding.recommendation}`);
+        }
+    }
+
+    console.log("\n==================================================");
+    console.log("VIBEGUARD SCAN COMPLETE");
+    console.log("==================================================\n");
+}
+
+/*
+==================================================
+MAIN
+==================================================
+*/
+
+console.log("\n🛡️ Starting VibeGuard...\n");
+console.log(`Target: ${ROOT}`);
+
+const files = getFiles(ROOT);
+
+console.log(`Files discovered: ${files.length}`);
+checkEnvironmentFiles(files);
+checkSecrets(files);
+checkCors(files);
+checkSecurityHeaders(files);
+checkAuthentication(files);
+checkAuthorization(files);
+checkDependencies();
+
+writeJsonReport(files);
+printReport(files);
+const criticalCount = findings.filter(
+    finding => finding.severity === "CRITICAL"
+).length;
+
+const highCount = findings.filter(
+    finding => finding.severity === "HIGH"
+).length;
+
+if (
+    criticalCount > 0 ||
+    highCount > 0
+) {
+    console.log(
+        "\n❌ VibeGuard status: FAILED"
+    );
+
+    process.exitCode = 1;
+} else {
+    console.log(
+        "\n✅ VibeGuard status: PASSED"
+    );
+
+    process.exitCode = 0;
+}

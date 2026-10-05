@@ -1,0 +1,33 @@
+{
+  "projectName": "VibeGuard Test Project",
+
+  "checks": {
+    "secrets": true,
+    "environmentFiles": true,
+    "dependencies": true,
+    "cors": true,
+    "securityHeaders": true,
+    "authentication": true,
+    "authorization": true
+  },
+
+  "ignore": {
+    "directories": [
+      "node_modules",
+      ".git",
+      ".next",
+      "dist",
+      "build"
+    ],
+
+    "files": [
+      ".env.example"
+    ]
+  },
+
+  "thresholds": {
+    "maximumCritical": 0,
+    "maximumHigh": 0,
+    "maximumMedium": 5
+  }
+}

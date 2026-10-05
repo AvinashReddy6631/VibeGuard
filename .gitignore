@@ -1,0 +1,5 @@
+vibeguard-report.json
+node_modules/
+.env
+.env.local
+.env.production
