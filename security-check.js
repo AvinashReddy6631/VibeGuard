@@ -18,7 +18,8 @@ const DEFAULT_CONFIG = {
         codeExecution: true,
         xss: true,
         sqlInjection: true,
-        commandInjection: true
+        commandInjection: true,
+        pathTraversal: true
     },
 
     ignore: {
@@ -794,6 +795,77 @@ function checkCommandInjection(files) {
 }
 /*
 ==================================================
+10. PATH TRAVERSAL CHECK
+==================================================
+*/
+
+function checkPathTraversal(files) {
+    if (!config.checks?.pathTraversal) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs"
+    ]);
+
+    const dangerousPatterns = [
+        {
+            name: "path.join() with request input",
+            regex: /\bpath\.join\s*\([^)]*(?:req\.|request\.|query\.|params\.)/i
+        },
+        {
+            name: "path.resolve() with request input",
+            regex: /\bpath\.resolve\s*\([^)]*(?:req\.|request\.|query\.|params\.)/i
+        },
+        {
+            name: "filesystem operation with request input",
+            regex: /\b(?:readFile|readFileSync|writeFile|writeFileSync|unlink|unlinkSync)\s*\([^)]*(?:req\.|request\.|query\.|params\.)/i
+        }
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sourceExtensions.has(extension)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        for (const pattern of dangerousPatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) {
+                continue;
+            }
+
+            addFinding({
+                id: "VG-PATH-001",
+                severity: "HIGH",
+                title: `Potential path traversal: ${pattern.name}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The project appears to use request-controlled input in a filesystem path, which may allow access to unintended files.",
+                recommendation:
+                    "Validate and constrain user-controlled paths. Prefer allowlists, normalize paths, and ensure resolved paths remain inside the intended directory."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -1152,10 +1224,11 @@ checkCors(files);
 checkSecurityHeaders(files);
 checkAuthentication(files);
 checkCodeExecution(files);
-checkAuthorization(files);
 checkXSS(files);
 checkSQLInjection(files);
 checkCommandInjection(files);
+checkPathTraversal(files);
+checkAuthorization(files);
 checkDependencies();
 writeJsonReport(files);
 printReport(files);
