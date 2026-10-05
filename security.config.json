@@ -9,7 +9,8 @@
     "securityHeaders": true,
     "authentication": true,
     "authorization": true,
-    "codeExecution": true
+    "codeExecution": true,
+    "xss": true
   },
 "ignore": {
   "directories": [

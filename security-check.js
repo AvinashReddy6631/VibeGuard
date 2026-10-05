@@ -15,7 +15,8 @@ const DEFAULT_CONFIG = {
         securityHeaders: true,
         authentication: true,
         authorization: true,
-        codeExecution: true
+        codeExecution: true,
+        xss: true
     },
 
     ignore: {
@@ -581,6 +582,81 @@ function checkCodeExecution(files) {
 }
 /*
 ==================================================
+7. XSS CHECK
+==================================================
+*/
+
+function checkXSS(files) {
+    if (!config.checks?.xss) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs"
+    ]);
+
+    const dangerousPatterns = [
+        {
+            name: "innerHTML",
+            regex: /\.innerHTML\s*=/i
+        },
+        {
+            name: "outerHTML",
+            regex: /\.outerHTML\s*=/i
+        },
+        {
+            name: "dangerouslySetInnerHTML",
+            regex: /\bdangerouslySetInnerHTML\b/i
+        },
+        {
+            name: "document.write()",
+            regex: /\bdocument\.write\s*\(/i
+        }
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sourceExtensions.has(extension)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        for (const pattern of dangerousPatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) {
+                continue;
+            }
+
+            addFinding({
+                id: "VG-XSS-001",
+                severity: "HIGH",
+                title: `Potential XSS sink detected: ${pattern.name}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The project contains a potentially unsafe HTML or DOM injection sink.",
+                recommendation:
+                    "Avoid inserting untrusted data into HTML or DOM sinks. Prefer safe text APIs, framework escaping, and explicit sanitization where HTML is required."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -650,6 +726,7 @@ function checkAuthorization(files) {
         }
     }
 }
+
 /*
 ==================================================
 7. DEPENDENCY CHECK
@@ -939,6 +1016,7 @@ checkSecurityHeaders(files);
 checkAuthentication(files);
 checkCodeExecution(files);
 checkAuthorization(files);
+checkXSS(files);
 checkDependencies();
 writeJsonReport(files);
 printReport(files);
