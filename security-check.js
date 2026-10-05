@@ -25,7 +25,8 @@ const DEFAULT_CONFIG = {
         unsafeUserInput: true,
         errorExposure: true,
         supplyChain: true,
-        openRedirect: true
+        openRedirect: true,
+        insecureTransport: true
     },
 
     ignore: {
@@ -1275,6 +1276,69 @@ function checkOpenRedirect(files) {
 }
 /*
 ==================================================
+17. INSECURE HTTP / TLS CHECK
+==================================================
+*/
+
+function checkInsecureTransport(files) {
+    if (!config.checks?.insecureTransport) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs",
+        ".json",
+        ".yml",
+        ".yaml"
+    ]);
+
+    const dangerousPatterns = [
+        {
+            name: "HTTP URL",
+            regex: /https?:\/\/(?!localhost\b|127\.0\.0\.1\b)[^\s"'`]+/i
+        },
+        {
+            name: "TLS certificate validation disabled",
+            regex: /\brejectUnauthorized\s*:\s*false\b/i
+        }
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sourceExtensions.has(extension)) continue;
+
+        const content = readFileSafe(file);
+        if (!content) continue;
+
+        for (const pattern of dangerousPatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) continue;
+
+            addFinding({
+                id: "VG-TLS-001",
+                severity: "MEDIUM",
+                title: `Potential insecure transport: ${pattern.name}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The project appears to use an insecure transport configuration that may expose data or weaken TLS protection.",
+                recommendation:
+                    "Use HTTPS/TLS for network communication and never disable certificate validation in production."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -1643,6 +1707,7 @@ checkUnsafeUserInput(files);
 checkErrorExposure(files);
 checkSupplyChain(files);
 checkOpenRedirect(files);
+checkInsecureTransport(files);
 checkAuthorization(files);
 checkDependencies();
 writeJsonReport(files);
