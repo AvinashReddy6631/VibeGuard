@@ -26,7 +26,8 @@ const DEFAULT_CONFIG = {
         errorExposure: true,
         supplyChain: true,
         openRedirect: true,
-        insecureTransport: true
+        insecureTransport: true,
+        cookieSecurity: true
     },
 
     ignore: {
@@ -1339,6 +1340,70 @@ function checkInsecureTransport(files) {
 }
 /*
 ==================================================
+18. COOKIE SECURITY CHECK
+==================================================
+*/
+
+function checkCookieSecurity(files) {
+    if (!config.checks?.cookieSecurity) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs"
+    ]);
+
+    const dangerousPatterns = [
+        {
+            name: "Cookie without HttpOnly",
+            regex: /res\.cookie\s*\(\s*[^,]+,\s*[^,)]*(?!\bhttpOnly\s*:\s*true\b)/i
+        },
+        {
+            name: "Cookie with secure disabled",
+            regex: /secure\s*:\s*false\b/i
+        },
+        {
+            name: "Cookie with SameSite disabled",
+            regex: /sameSite\s*:\s*["']?none["']?/i
+        }
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sourceExtensions.has(extension)) continue;
+
+        const content = readFileSafe(file);
+        if (!content) continue;
+
+        for (const pattern of dangerousPatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) continue;
+
+            addFinding({
+                id: "VG-COOKIE-001",
+                severity: "MEDIUM",
+                title: `Potential cookie security issue: ${pattern.name}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The application may configure cookies without appropriate security protections.",
+                recommendation:
+                    "Use HttpOnly, Secure, and an appropriate SameSite policy for sensitive cookies."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -1708,6 +1773,7 @@ checkErrorExposure(files);
 checkSupplyChain(files);
 checkOpenRedirect(files);
 checkInsecureTransport(files);
+checkCookieSecurity(files);
 checkAuthorization(files);
 checkDependencies();
 writeJsonReport(files);
