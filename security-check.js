@@ -28,7 +28,8 @@ const DEFAULT_CONFIG = {
         openRedirect: true,
         insecureTransport: true,
         cookieSecurity: true,
-        jwtSecurity: true
+        jwtSecurity: true,
+        securityLogging: true
     },
 
     ignore: {
@@ -1469,6 +1470,70 @@ function checkJWTSecurity(files) {
 }
 /*
 ==================================================
+20. SECURITY LOGGING CHECK
+==================================================
+*/
+
+function checkSecurityLogging(files) {
+    if (!config.checks?.securityLogging) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs"
+    ]);
+
+    const sensitivePatterns = [
+        {
+            name: "Password logged",
+            regex: /\bconsole\.(?:log|error|warn|info)\s*\([^)]*\bpassword\b/i
+        },
+        {
+            name: "Token logged",
+            regex: /\bconsole\.(?:log|error|warn|info)\s*\([^)]*\b(?:token|accessToken|refreshToken)\b/i
+        },
+        {
+            name: "Authorization header logged",
+            regex: /\bconsole\.(?:log|error|warn|info)\s*\([^)]*\bauthorization\b/i
+        }
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sourceExtensions.has(extension)) continue;
+
+        const content = readFileSafe(file);
+        if (!content) continue;
+
+        for (const pattern of sensitivePatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) continue;
+
+            addFinding({
+                id: "VG-LOG-001",
+                severity: "HIGH",
+                title: `Sensitive data exposed in logs: ${pattern.name}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The application may write sensitive authentication or credential information to application logs.",
+                recommendation:
+                    "Never log passwords, tokens, authorization headers, or other secrets. Redact sensitive fields before logging."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -1840,6 +1905,7 @@ checkOpenRedirect(files);
 checkInsecureTransport(files);
 checkCookieSecurity(files);
 checkJWTSecurity(files);
+checkSecurityLogging(files);
 checkAuthorization(files);
 checkDependencies();
 writeJsonReport(files);
