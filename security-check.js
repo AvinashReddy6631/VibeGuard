@@ -20,7 +20,8 @@ const DEFAULT_CONFIG = {
         sqlInjection: true,
         commandInjection: true,
         pathTraversal: true,
-        ssrf: true
+        ssrf: true,
+        sensitiveConfiguration: true
     },
 
     ignore: {
@@ -938,6 +939,86 @@ function checkSSRF(files) {
 }
 /*
 ==================================================
+12. SENSITIVE CONFIGURATION CHECK
+==================================================
+*/
+
+function checkSensitiveConfiguration(files) {
+    if (!config.checks?.sensitiveConfiguration) {
+        return;
+    }
+
+    const sensitiveExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".json",
+        ".yml",
+        ".yaml",
+        ".env",
+        ".config",
+        ".mjs",
+        ".cjs"
+    ]);
+
+    const sensitivePatterns = [
+        {
+            name: "Private key",
+            regex: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i
+        },
+        {
+            name: "Basic authentication credentials",
+            regex: /\b(?:username|user)\s*[:=]\s*["'][^"']+["'][\s\S]{0,100}\bpassword\s*[:=]/i
+        },
+        {
+            name: "Database connection string",
+            regex: /\b(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql):\/\/[^"'\s]+/i
+        },
+        {
+            name: "Cloud access credential",
+            regex: /\b(?:AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AZURE_CLIENT_SECRET|GOOGLE_APPLICATION_CREDENTIALS)\s*[:=]/i
+        }
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sensitiveExtensions.has(extension)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        for (const pattern of sensitivePatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) {
+                continue;
+            }
+
+            addFinding({
+                id: "VG-CONFIG-001",
+                severity: "HIGH",
+                title: `Sensitive configuration detected: ${pattern.name}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The project appears to contain sensitive credentials or connection information that should not be exposed in source code.",
+                recommendation:
+                    "Move sensitive values to a secure secret manager or protected environment variables. Never commit real credentials or private keys to source control."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -1301,6 +1382,7 @@ checkSQLInjection(files);
 checkCommandInjection(files);
 checkPathTraversal(files);
 checkSSRF(files);
+checkSensitiveConfiguration(files);
 checkAuthorization(files);
 checkDependencies();
 writeJsonReport(files);
