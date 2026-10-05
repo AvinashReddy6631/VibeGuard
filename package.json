@@ -1,5 +1,5 @@
 {
-  "name": "vibeguard",
+  "name": "@avireddy2005/vibeguard",
   "version": "0.1.0",
   "description": "Lightweight security baseline and automated security auditor for AI-generated and vibe-coded web applications.",
   "main": "security-check.js",
