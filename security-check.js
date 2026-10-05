@@ -24,7 +24,8 @@ const DEFAULT_CONFIG = {
         sensitiveConfiguration: true,
         unsafeUserInput: true,
         errorExposure: true,
-        supplyChain: true
+        supplyChain: true,
+        openRedirect: true
     },
 
     ignore: {
@@ -1207,6 +1208,73 @@ function checkSupplyChain(files) {
 }
 /*
 ==================================================
+16. OPEN REDIRECT CHECK
+==================================================
+*/
+
+function checkOpenRedirect(files) {
+    if (!config.checks?.openRedirect) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs"
+    ]);
+
+    const dangerousPatterns = [
+        {
+            name: "res.redirect() with request input",
+            regex: /\bres\.redirect\s*\(\s*(?:req\.|request\.|req\.(?:query|params|body)\.)/i
+        },
+        {
+            name: "redirect() with request input",
+            regex: /\bredirect\s*\(\s*(?:req\.|request\.|req\.(?:query|params|body)\.)/i
+        }
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sourceExtensions.has(extension)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        for (const pattern of dangerousPatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) {
+                continue;
+            }
+
+            addFinding({
+                id: "VG-REDIRECT-001",
+                severity: "MEDIUM",
+                title: `Potential open redirect: ${pattern.name}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The application appears to redirect users using request-controlled input.",
+                recommendation:
+                    "Validate redirect destinations and allow only trusted paths or domains. Avoid redirecting directly to arbitrary user-provided URLs."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -1574,6 +1642,7 @@ checkSensitiveConfiguration(files);
 checkUnsafeUserInput(files);
 checkErrorExposure(files);
 checkSupplyChain(files);
+checkOpenRedirect(files);
 checkAuthorization(files);
 checkDependencies();
 writeJsonReport(files);
