@@ -3,16 +3,57 @@ const path = require("path");
 const { execSync } = require("child_process");
 
 const ROOT = path.resolve(process.argv[2] || ".");
-
+const IS_TARGET_SCAN = process.argv.length > 2;
 const CONFIG_PATH = path.join(__dirname, "security.config.json");
+const PROJECT_NAME = path.basename(ROOT);
 
 let config = {};
 
 try {
-    config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+    config = JSON.parse(
+        fs.readFileSync(CONFIG_PATH, "utf8")
+    );
 } catch (error) {
     console.error("❌ Could not read security.config.json");
     process.exit(1);
+}
+
+const targetConfigPath = path.join(
+    ROOT,
+    "security.config.json"
+);
+
+if (
+    ROOT !== path.resolve(__dirname) &&
+    fs.existsSync(targetConfigPath)
+) {
+    try {
+        const targetConfig = JSON.parse(
+            fs.readFileSync(targetConfigPath, "utf8")
+        );
+
+        config = {
+            ...config,
+            ...targetConfig,
+            checks: {
+                ...config.checks,
+                ...targetConfig.checks
+            },
+            ignore: {
+                ...config.ignore,
+                ...targetConfig.ignore
+            },
+            thresholds: {
+                ...config.thresholds,
+                ...targetConfig.thresholds
+            }
+        };
+    } catch (error) {
+        console.error(
+            "❌ Could not read target security.config.json"
+        );
+        process.exit(1);
+    }
 }
 
 const findings = [];
@@ -668,10 +709,13 @@ function writeJsonReport(files) {
         timestamp: new Date().toISOString(),
 
         project: {
-            name: config.projectName || path.basename(ROOT),
+            name: path.basename(ROOT),
             target: ROOT,
             filesScanned: files.length
+            
         },
+        
+    
 
         summary: counts,
 
@@ -715,7 +759,7 @@ function printReport(files) {
     console.log("           SECURITY AUDIT REPORT");
     console.log("==================================================");
 
-    console.log(`\nProject: ${config.projectName || path.basename(ROOT)}`);
+    console.log(`\nProject: ${PROJECT_NAME}`);
     console.log(`Target: ${ROOT}`);
     console.log(`Files scanned: ${files.length}`);
 
@@ -785,6 +829,18 @@ console.log(`Target: ${ROOT}`);
 const files = getFiles(ROOT);
 
 console.log(`Files discovered: ${files.length}`);
+if (files.length === 0) {
+    console.error(
+        "\n❌ VibeGuard could not discover any scannable files."
+    );
+
+    console.error(
+        "Check that the target path exists and contains supported project files."
+    );
+
+    process.exitCode = 1;
+    process.exit();
+}
 checkEnvironmentFiles(files);
 checkSecrets(files);
 checkCors(files);
