@@ -8,23 +8,20 @@
     "cors": true,
     "securityHeaders": true,
     "authentication": true,
-    "authorization": true
+    "authorization": true,
+    "codeExecution": true
   },
-
-  "ignore": {
-    "directories": [
-  "node_modules",
-  ".git",
-  ".next",
-  "dist",
-  "build",
-  "test-project"
-],
-
-    "files": [
-      ".env.example"
-    ]
-  },
+"ignore": {
+  "directories": [
+    "node_modules",
+    ".git",
+    ".next",
+    "dist",
+    "build",
+    "test-project",
+    "code-execution-test"
+  ]
+},
 
   "thresholds": {
     "maximumCritical": 0,

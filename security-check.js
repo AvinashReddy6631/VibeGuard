@@ -14,7 +14,8 @@ const DEFAULT_CONFIG = {
         cors: true,
         securityHeaders: true,
         authentication: true,
-        authorization: true
+        authorization: true,
+        codeExecution: true
     },
 
     ignore: {
@@ -36,7 +37,6 @@ const DEFAULT_CONFIG = {
         maximumMedium: 5
     }
 };
-
 const PROJECT_NAME = path.basename(ROOT);
 
 let config = DEFAULT_CONFIG;
@@ -514,6 +514,73 @@ function checkAuthentication(files) {
 }
 /*
 ==================================================
+6. DANGEROUS CODE EXECUTION CHECK
+==================================================
+*/
+
+function checkCodeExecution(files) {
+    if (!config.checks?.codeExecution) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs"
+    ]);
+
+    const dangerousPatterns = [
+        {
+            name: "eval()",
+            regex: /\beval\s*\(/i
+        },
+        {
+            name: "Function() constructor",
+            regex: /\bnew\s+Function\s*\(/i
+        }
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sourceExtensions.has(extension)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        for (const pattern of dangerousPatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) {
+                continue;
+            }
+
+            addFinding({
+                id: "VG-CODE-EXEC-001",
+                severity: "HIGH",
+                title: `Dangerous ${pattern.name} detected`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The project contains dynamic code execution that may allow untrusted input to execute as code.",
+                recommendation:
+                    "Avoid dynamic code execution. Remove eval() or Function() where possible and never pass untrusted input into dynamic execution."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -870,9 +937,9 @@ checkSecrets(files);
 checkCors(files);
 checkSecurityHeaders(files);
 checkAuthentication(files);
+checkCodeExecution(files);
 checkAuthorization(files);
 checkDependencies();
-
 writeJsonReport(files);
 printReport(files);
 const criticalCount = findings.filter(
