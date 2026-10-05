@@ -1282,7 +1282,6 @@ function checkOpenRedirect(files) {
 17. INSECURE HTTP / TLS CHECK
 ==================================================
 */
-
 function checkInsecureTransport(files) {
     if (!config.checks?.insecureTransport) {
         return;
@@ -1300,10 +1299,17 @@ function checkInsecureTransport(files) {
         ".yaml"
     ]);
 
+    const ignoredFiles = new Set([
+        "package-lock.json",
+        "npm-shrinkwrap.json",
+        "yarn.lock",
+        "pnpm-lock.yaml"
+    ]);
+
     const dangerousPatterns = [
         {
             name: "HTTP URL",
-            regex: /https?:\/\/(?!localhost\b|127\.0\.0\.1\b)[^\s"'`]+/i
+            regex: /https?:\/\/(?!localhost\b|127\.0\.0\.1\b|0\.0\.0\.0\b)[^\s"'`]+/i
         },
         {
             name: "TLS certificate validation disabled",
@@ -1313,8 +1319,10 @@ function checkInsecureTransport(files) {
 
     for (const file of files) {
         const extension = path.extname(file).toLowerCase();
+        const fileName = path.basename(file).toLowerCase();
 
         if (!sourceExtensions.has(extension)) continue;
+        if (ignoredFiles.has(fileName)) continue;
 
         const content = readFileSafe(file);
         if (!content) continue;
