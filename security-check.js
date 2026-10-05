@@ -21,7 +21,8 @@ const DEFAULT_CONFIG = {
         commandInjection: true,
         pathTraversal: true,
         ssrf: true,
-        sensitiveConfiguration: true
+        sensitiveConfiguration: true,
+        unsafeUserInput: true
     },
 
     ignore: {
@@ -1019,6 +1020,77 @@ function checkSensitiveConfiguration(files) {
 }
 /*
 ==================================================
+13. UNSAFE USER INPUT CHECK
+==================================================
+*/
+
+function checkUnsafeUserInput(files) {
+    if (!config.checks?.unsafeUserInput) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs"
+    ]);
+
+    const dangerousPatterns = [
+        {
+            name: "Request input passed directly to redirect()",
+            regex: /\bredirect\s*\(\s*(?:req\.|request\.|req\.(?:query|params|body)\.)/i
+        },
+        {
+            name: "Request input passed directly to response redirect",
+            regex: /\bres\.(?:redirect|location)\s*\(\s*(?:req\.|request\.|req\.(?:query|params|body)\.)/i
+        },
+        {
+            name: "Request input passed directly to JSON.parse()",
+            regex: /\bJSON\.parse\s*\(\s*(?:req\.|request\.|req\.(?:query|params|body)\.)/i
+        }
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sourceExtensions.has(extension)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        for (const pattern of dangerousPatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) {
+                continue;
+            }
+
+            addFinding({
+                id: "VG-INPUT-001",
+                severity: "MEDIUM",
+                title: `Potential unsafe user input: ${pattern.name}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The application appears to pass request-controlled input directly into a sensitive operation without visible validation.",
+                recommendation:
+                    "Validate, sanitize, and constrain user-controlled input before using it in redirects, parsing operations, or other security-sensitive functionality."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -1383,6 +1455,7 @@ checkCommandInjection(files);
 checkPathTraversal(files);
 checkSSRF(files);
 checkSensitiveConfiguration(files);
+checkUnsafeUserInput(files);
 checkAuthorization(files);
 checkDependencies();
 writeJsonReport(files);
