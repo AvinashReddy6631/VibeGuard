@@ -20,3 +20,6 @@ jobs:
 
       - name: Run VibeGuard
         run: node security-check.js .
+
+      - name: Run automated tests
+        run: node tests/run-tests.js
