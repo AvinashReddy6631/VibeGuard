@@ -20,7 +20,8 @@
     "dist",
     "build",
     "test-project",
-    "code-execution-test"
+    "code-execution-test",
+    "tests"
   ]
 },
 
