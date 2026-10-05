@@ -47,7 +47,7 @@ VibeGuard currently provides 22 security checks:
 
 ```
 
-📦 Installation
+## 📦 Installation
 Run directly with npx
 npx @avireddy2005/vibeguard scan .
 
@@ -59,7 +59,7 @@ vibeguard scan .
 
 
 
-💻 Usage
+## 💻 Usage
 
 Scan the current project:
 
@@ -85,7 +85,7 @@ vibeguard scan .
 
 
 
-📊 Example Output
+## 📊 Example Output
 🛡️ Starting VibeGuard...
 
 Target: ./my-project
@@ -135,7 +135,7 @@ VibeGuard status: PASSED
 
 
 
-📄 JSON Security Report
+## 📄 JSON Security Report
 VibeGuard automatically generates:
 vibeguard-report.json
 
@@ -167,7 +167,7 @@ Example:
 The generated report is ignored by Git by default.
 
 
-⚙️ Configuration
+## ⚙️ Configuration
 Projects can provide a:
 security.config.json
 
@@ -194,7 +194,7 @@ Example:
 
 
 
-🔄 CI/CD
+## 🔄 CI/CD
 VibeGuard can be integrated into CI/CD pipelines.
 Example GitHub Actions step:
 - name: Run VibeGuard
@@ -205,7 +205,8 @@ VibeGuard also includes automated regression tests and GitHub Actions workflows.
 
 
 
-🧪 Development
+## 🧪 Development 
+``` bash 
 Clone the repository:
 git clone https://github.com/AvinashReddy6631/VibeGuard.git
 
@@ -222,9 +223,9 @@ Run the CLI locally:
 node bin/vibeguard.js --help
 
 
+```
 
-
-🏗️ Project Status
+## 🏗️ Project Status
 Current version: VibeGuard v0.1.0
 Current capabilities:
 - 22 security checks
@@ -243,19 +244,20 @@ npm Package
 
 
 
-Install:
+## Install:
+``` bash
 npm install -g @avireddy2005/vibeguard
 
 Or use directly:
 npx @avireddy2005/vibeguard scan .
+```
 
 
 
 
 
 
-
-⚠️ Security Disclaimer
+## ⚠️ Security Disclaimer
 VibeGuard is designed to provide a lightweight automated security baseline.
 Automated scanning cannot identify every possible security vulnerability.
 VibeGuard should not replace:
