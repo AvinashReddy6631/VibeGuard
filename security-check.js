@@ -23,7 +23,8 @@ const DEFAULT_CONFIG = {
         ssrf: true,
         sensitiveConfiguration: true,
         unsafeUserInput: true,
-        errorExposure: true
+        errorExposure: true,
+        supplyChain: true
     },
 
     ignore: {
@@ -1147,6 +1148,65 @@ function checkErrorExposure(files) {
 }
 /*
 ==================================================
+15. SUPPLY CHAIN CHECK
+==================================================
+*/
+
+function checkSupplyChain(files) {
+    if (!config.checks?.supplyChain) {
+        return;
+    }
+
+    for (const file of files) {
+        if (path.basename(file) !== "package.json") {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        let packageData;
+
+        try {
+            packageData = JSON.parse(content);
+        } catch {
+            continue;
+        }
+
+        const scripts = packageData.scripts || {};
+
+        const dangerousScripts = [
+            "preinstall",
+            "install",
+            "postinstall"
+        ];
+
+        for (const scriptName of dangerousScripts) {
+            if (!scripts[scriptName]) {
+                continue;
+            }
+
+            addFinding({
+                id: "VG-SUPPLY-001",
+                severity: "MEDIUM",
+                title: `Package install script detected: ${scriptName}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, scripts[scriptName]),
+                description:
+                    "The package defines an installation lifecycle script that executes automatically during package installation.",
+                recommendation:
+                    "Review installation scripts carefully and remove unnecessary lifecycle scripts. Only execute trusted package installation code."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -1513,6 +1573,7 @@ checkSSRF(files);
 checkSensitiveConfiguration(files);
 checkUnsafeUserInput(files);
 checkErrorExposure(files);
+checkSupplyChain(files);
 checkAuthorization(files);
 checkDependencies();
 writeJsonReport(files);
