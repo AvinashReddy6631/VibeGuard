@@ -45,6 +45,7 @@ VibeGuard currently provides 22 security checks:
 21. JWT Security
 22. Security Logging
 
+```
 
 📦 Installation
 Run directly with npx
