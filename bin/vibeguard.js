@@ -3,7 +3,7 @@
 const { spawnSync } = require("child_process");
 const path = require("path");
 
-const VERSION = "0.1.0";
+const VERSION = require("../package.json").version;
 
 const args = process.argv.slice(2);
 
