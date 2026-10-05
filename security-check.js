@@ -17,7 +17,8 @@ const DEFAULT_CONFIG = {
         authorization: true,
         codeExecution: true,
         xss: true,
-        sqlInjection: true
+        sqlInjection: true,
+        commandInjection: true
     },
 
     ignore: {
@@ -725,6 +726,74 @@ function checkSQLInjection(files) {
 }
 /*
 ==================================================
+9. COMMAND INJECTION CHECK
+==================================================
+*/
+
+function checkCommandInjection(files) {
+    if (!config.checks?.commandInjection) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs"
+    ]);
+
+    const dangerousPatterns = [
+        {
+            name: "child_process.exec()",
+            regex: /\b(?:child_process\.)?exec\s*\(/i
+        },
+        {
+            name: "child_process.execSync()",
+            regex: /\b(?:child_process\.)?execSync\s*\(/i
+        },
+        
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sourceExtensions.has(extension)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        for (const pattern of dangerousPatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) {
+                continue;
+            }
+
+            addFinding({
+                id: "VG-CMD-001",
+                severity: "HIGH",
+                title: `Potential command injection: ${pattern.name}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The project executes operating system commands and may be vulnerable if untrusted input reaches the command.",
+                recommendation:
+                    "Avoid shell command execution where possible. Prefer safe APIs and never pass untrusted user input directly into system commands."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -1086,6 +1155,7 @@ checkCodeExecution(files);
 checkAuthorization(files);
 checkXSS(files);
 checkSQLInjection(files);
+checkCommandInjection(files);
 checkDependencies();
 writeJsonReport(files);
 printReport(files);
