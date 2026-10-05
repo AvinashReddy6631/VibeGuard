@@ -19,8 +19,5 @@
     "vibe-coding",
     "developer-security"
   ],
-  "license": "MIT",
-  "dependencies": {
-    "vibeguard": "file:vibeguard-0.1.0.tgz"
-  }
+  "license": "MIT"
 }
