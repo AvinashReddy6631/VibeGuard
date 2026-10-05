@@ -4,58 +4,82 @@ const { execSync } = require("child_process");
 
 const ROOT = path.resolve(process.argv[2] || ".");
 const IS_TARGET_SCAN = process.argv.length > 2;
-const CONFIG_PATH = path.join(__dirname, "security.config.json");
+const DEFAULT_CONFIG = {
+    projectName: "VibeGuard Project",
+
+    checks: {
+        secrets: true,
+        environmentFiles: true,
+        dependencies: true,
+        cors: true,
+        securityHeaders: true,
+        authentication: true,
+        authorization: true
+    },
+
+    ignore: {
+        directories: [
+            "node_modules",
+            ".git",
+            ".next",
+            "dist",
+            "build"
+        ],
+        files: [
+            ".env.example"
+        ]
+    },
+
+    thresholds: {
+        maximumCritical: 0,
+        maximumHigh: 0,
+        maximumMedium: 5
+    }
+};
+
 const PROJECT_NAME = path.basename(ROOT);
 
-let config = {};
-
-try {
-    config = JSON.parse(
-        fs.readFileSync(CONFIG_PATH, "utf8")
-    );
-} catch (error) {
-    console.error("❌ Could not read security.config.json");
-    process.exit(1);
-}
+let config = DEFAULT_CONFIG;
 
 const targetConfigPath = path.join(
     ROOT,
     "security.config.json"
 );
 
-if (
-    ROOT !== path.resolve(__dirname) &&
-    fs.existsSync(targetConfigPath)
-) {
+if (fs.existsSync(targetConfigPath)) {
     try {
         const targetConfig = JSON.parse(
             fs.readFileSync(targetConfigPath, "utf8")
         );
 
         config = {
-            ...config,
+            ...DEFAULT_CONFIG,
             ...targetConfig,
+
             checks: {
-                ...config.checks,
-                ...targetConfig.checks
+                ...DEFAULT_CONFIG.checks,
+                ...(targetConfig.checks || {})
             },
+
             ignore: {
-                ...config.ignore,
-                ...targetConfig.ignore
+                ...DEFAULT_CONFIG.ignore,
+                ...(targetConfig.ignore || {})
             },
+
             thresholds: {
-                ...config.thresholds,
-                ...targetConfig.thresholds
+                ...DEFAULT_CONFIG.thresholds,
+                ...(targetConfig.thresholds || {})
             }
         };
+
     } catch (error) {
         console.error(
             "❌ Could not read target security.config.json"
         );
+
         process.exit(1);
     }
 }
-
 const findings = [];
 
 const ignoredDirectories = new Set(
