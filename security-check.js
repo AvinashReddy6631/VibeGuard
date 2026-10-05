@@ -246,6 +246,25 @@ function readFileSafe(file) {
 ==================================================
 */
 
+function isGitTracked(file) {
+    try {
+        const relativeFile = path.relative(ROOT, file);
+
+        const result = spawnSync(
+            "git",
+            ["ls-files", "--error-unmatch", relativeFile],
+            {
+                cwd: ROOT,
+                encoding: "utf8",
+                stdio: ["ignore", "pipe", "ignore"]
+            }
+        );
+
+        return result.status === 0;
+    } catch {
+        return false;
+    }
+}
 function checkEnvironmentFiles(files) {
     if (!config.checks?.environmentFiles) {
         return;
@@ -260,21 +279,26 @@ function checkEnvironmentFiles(files) {
             name === ".env.production" ||
             name === ".env.development"
         ) {
+            const tracked = isGitTracked(file);
+
             addFinding({
                 id: "VG-ENV-001",
-                severity: "HIGH",
-                title: "Environment file detected",
+                severity: tracked ? "HIGH" : "INFO",
+                title: tracked
+                    ? "Environment file is tracked by Git"
+                    : "Environment file detected",
                 file: path.relative(ROOT, file),
                 line: 1,
-                description:
-                    "A potentially sensitive environment file exists inside the project.",
-                recommendation:
-                    "Keep secrets outside source control and ensure sensitive .env files are ignored by Git."
+                description: tracked
+                    ? "A potentially sensitive environment file is tracked by Git and may expose secrets through source control."
+                    : "A local environment file exists but is not tracked by Git.",
+                recommendation: tracked
+                    ? "Remove the environment file from Git tracking and keep sensitive values in environment variables or secret storage."
+                    : "Keep the environment file untracked and ensure it remains listed in .gitignore."
             });
         }
     }
 }
-
 /*
 ==================================================
 2. SECRET DETECTION
@@ -1308,9 +1332,9 @@ function checkInsecureTransport(files) {
 
     const dangerousPatterns = [
         {
-            name: "HTTP URL",
-            regex: /https?:\/\/(?!localhost\b|127\.0\.0\.1\b|0\.0\.0\.0\b)[^\s"'`]+/i
-        },
+    name: "HTTP URL",
+    regex: /http:\/\/(?!localhost\b|127\.0\.0\.1\b|0\.0\.0\.0\b)[^\s"'`]+/i
+},
         {
             name: "TLS certificate validation disabled",
             regex: /\brejectUnauthorized\s*:\s*false\b/i
@@ -1894,6 +1918,7 @@ if (files.length === 0) {
     process.exitCode = 1;
     process.exit();
 }
+
 checkEnvironmentFiles(files);
 checkSecrets(files);
 checkCors(files);
