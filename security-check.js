@@ -16,7 +16,8 @@ const DEFAULT_CONFIG = {
         authentication: true,
         authorization: true,
         codeExecution: true,
-        xss: true
+        xss: true,
+        sqlInjection: true
     },
 
     ignore: {
@@ -657,6 +658,73 @@ function checkXSS(files) {
 }
 /*
 ==================================================
+8. SQL INJECTION CHECK
+==================================================
+*/
+
+function checkSQLInjection(files) {
+    if (!config.checks?.sqlInjection) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs"
+    ]);
+
+    const dangerousPatterns = [
+        {
+            name: "SQL query with string concatenation",
+            regex: /\b(SELECT|INSERT|UPDATE|DELETE)\b[\s\S]{0,200}\+\s*[a-zA-Z_$][\w$]*/i
+        },
+        {
+            name: "SQL query with template interpolation",
+            regex: /\b(SELECT|INSERT|UPDATE|DELETE)\b[\s\S]{0,200}\$\{[^}]+\}/i
+        }
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sourceExtensions.has(extension)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        for (const pattern of dangerousPatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) {
+                continue;
+            }
+
+            addFinding({
+                id: "VG-SQL-001",
+                severity: "HIGH",
+                title: `Potential SQL injection: ${pattern.name}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The project contains a SQL query that may incorporate dynamic input without safe parameterization.",
+                recommendation:
+                    "Use parameterized queries or prepared statements. Never concatenate or directly interpolate untrusted input into SQL queries."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -1017,6 +1085,7 @@ checkAuthentication(files);
 checkCodeExecution(files);
 checkAuthorization(files);
 checkXSS(files);
+checkSQLInjection(files);
 checkDependencies();
 writeJsonReport(files);
 printReport(files);
