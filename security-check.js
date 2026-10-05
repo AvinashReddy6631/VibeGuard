@@ -22,7 +22,8 @@ const DEFAULT_CONFIG = {
         pathTraversal: true,
         ssrf: true,
         sensitiveConfiguration: true,
-        unsafeUserInput: true
+        unsafeUserInput: true,
+        errorExposure: true
     },
 
     ignore: {
@@ -1091,6 +1092,61 @@ function checkUnsafeUserInput(files) {
 }
 /*
 ==================================================
+14. ERROR EXPOSURE CHECK
+==================================================
+*/
+
+function checkErrorExposure(files) {
+    if (!config.checks?.errorExposure) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"
+    ]);
+
+    const dangerousPatterns = [
+        {
+            name: "Stack trace sent in response",
+            regex: /\bres\.(?:send|json)\s*\(\s*(?:err|error)\.(?:stack|message)\b/i
+        },
+        {
+            name: "Error stack printed to response",
+            regex: /\bres\.(?:send|json)\s*\([^)]*\.(?:stack|message)\b/i
+        }
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sourceExtensions.has(extension)) continue;
+
+        const content = readFileSafe(file);
+        if (!content) continue;
+
+        for (const pattern of dangerousPatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) continue;
+
+            addFinding({
+                id: "VG-ERROR-001",
+                severity: "MEDIUM",
+                title: `Potential error information exposure: ${pattern.name}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The application may expose internal error details to clients.",
+                recommendation:
+                    "Return generic error messages to clients and log detailed errors securely on the server."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -1456,6 +1512,7 @@ checkPathTraversal(files);
 checkSSRF(files);
 checkSensitiveConfiguration(files);
 checkUnsafeUserInput(files);
+checkErrorExposure(files);
 checkAuthorization(files);
 checkDependencies();
 writeJsonReport(files);
