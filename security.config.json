@@ -13,12 +13,13 @@
 
   "ignore": {
     "directories": [
-      "node_modules",
-      ".git",
-      ".next",
-      "dist",
-      "build"
-    ],
+  "node_modules",
+  ".git",
+  ".next",
+  "dist",
+  "build",
+  "test-project"
+],
 
     "files": [
       ".env.example"
