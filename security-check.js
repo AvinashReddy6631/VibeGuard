@@ -19,7 +19,8 @@ const DEFAULT_CONFIG = {
         xss: true,
         sqlInjection: true,
         commandInjection: true,
-        pathTraversal: true
+        pathTraversal: true,
+        ssrf: true
     },
 
     ignore: {
@@ -866,6 +867,77 @@ function checkPathTraversal(files) {
 }
 /*
 ==================================================
+11. SSRF CHECK
+==================================================
+*/
+
+function checkSSRF(files) {
+    if (!config.checks?.ssrf) {
+        return;
+    }
+
+    const sourceExtensions = new Set([
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs"
+    ]);
+
+    const dangerousPatterns = [
+        {
+            name: "fetch() with request input",
+            regex: /\bfetch\s*\(\s*(?:req\.|request\.|req\.(?:query|params|body)\.)/i
+        },
+        {
+            name: "axios request with request input",
+            regex: /\baxios\.(?:get|post|put|delete|request)\s*\(\s*(?:req\.|request\.|req\.(?:query|params|body)\.)/i
+        },
+        {
+            name: "http request with request input",
+            regex: /\bhttps?\.(?:get|request)\s*\(\s*(?:req\.|request\.|req\.(?:query|params|body)\.)/i
+        }
+    ];
+
+    for (const file of files) {
+        const extension = path.extname(file).toLowerCase();
+
+        if (!sourceExtensions.has(extension)) {
+            continue;
+        }
+
+        const content = readFileSafe(file);
+
+        if (!content) {
+            continue;
+        }
+
+        for (const pattern of dangerousPatterns) {
+            const match = content.match(pattern.regex);
+
+            if (!match) {
+                continue;
+            }
+
+            addFinding({
+                id: "VG-SSRF-001",
+                severity: "HIGH",
+                title: `Potential SSRF: ${pattern.name}`,
+                file: path.relative(ROOT, file),
+                line: getLineNumber(content, match.index),
+                description:
+                    "The application appears to make an outbound request using user-controlled input, which may allow requests to unintended internal or external resources.",
+                recommendation:
+                    "Validate and restrict destination URLs. Prefer an allowlist of trusted hosts and block access to internal, loopback, link-local, and cloud metadata addresses."
+            });
+
+            break;
+        }
+    }
+}
+/*
+==================================================
 6. AUTHORIZATION CHECK
 ==================================================
 */
@@ -1228,6 +1300,7 @@ checkXSS(files);
 checkSQLInjection(files);
 checkCommandInjection(files);
 checkPathTraversal(files);
+checkSSRF(files);
 checkAuthorization(files);
 checkDependencies();
 writeJsonReport(files);
