@@ -6,6 +6,12 @@
   "bin": {
     "vibeguard": "bin/vibeguard.js"
   },
+  "files": [
+    "bin",
+    "security-check.js",
+    "README.md",
+    "LICENSE"
+  ],
   "keywords": [
     "security",
     "vulnerability-scanner",
@@ -13,5 +19,8 @@
     "vibe-coding",
     "developer-security"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "vibeguard": "file:vibeguard-0.1.0.tgz"
+  }
 }
